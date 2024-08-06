@@ -4,17 +4,19 @@ manifest:
     - name: zephyrproject-rtos
       url-base: https://github.com/zephyrproject-rtos
     - name: mender
-      url-base: https://github.com/mendersoftware
+      url-base: https://github.com/lluiscampos
 
   projects:
     - name: zephyr
       remote: zephyrproject-rtos
-      revision: main
+      revision: v3.7.0
       import: true
     - name: mender-mcu
       remote: mender
-      revision: main
+      revision: MEN-7387-complete-qemu-build
+      # TODO: move to mender-mcu for developer's sanity
       path: modules/mender-mcu
+      import: true
 
   self:
     path: mender-mcu-integration

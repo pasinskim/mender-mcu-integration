@@ -49,9 +49,61 @@ Now build and run the reference application with:
 
 ```
 west build --build-dir build-qemu --board qemu_x86 mender-mcu-integration
+./tools/net-tools/loop-socat.sh &
 west build --build-dir build-qemu --target run
 ```
 
+Inspiration:
+* Look at overlays at https://github.com/zephyrproject-rtos/zephyr/tree/main/tests/subsys/dfu
+* Maybe the tests at https://github.com/zephyrproject-rtos/zephyr/tree/main/tests/boot
+* And learn about Sysbuild (?) https://github.com/zephyrproject-rtos/zephyr/tree/main/samples/sysbuild/with_mcuboot
+
+This looks promising
+```
+$ git diff
+diff --git a/boards/qemu/x86/qemu_x86.dts b/boards/qemu/x86/qemu_x86.dts
+index 907e8a1ec1c..86ddcf5bab9 100644
+--- a/boards/qemu/x86/qemu_x86.dts
++++ b/boards/qemu/x86/qemu_x86.dts
+@@ -147,7 +147,8 @@
+                 * Storage partition will be used by FCB/LittleFS/NVS
+                 * if enabled.
+                 */
+-               storage_partition: partition@1000 {
++               /*storage_partition: partition@1000 {*/
++               boot_partition: partition@1000 {
+                        label = "storage";
+                        reg = <0x00001000 0x00010000>;
+                };
+```
+
+### Build for Nordic Semi eval board
+
+https://docs.zephyrproject.org/latest/boards/nordic/nrf52840dk/doc/index.html#flashing
+
+https://docs.nordicsemi.com/bundle/ncs-latest/page/zephyr/samples/subsys/usb/dfu/README.html
+
+#### Flash the bootloader first
+
+https://docs.mcuboot.com/readme-zephyr
+
+```
+west build --build-dir build-nordic-boot --board nrf52840dk/nrf52840 bootloader/mcuboot/boot/zephyr
+west flash --build-dir build-nordic-boot
+```
+
+#### Now the application
+
+Open a the serial:
+```
+minicom -D /dev/ttyACM1
+```
+
+And build, flash, blink:
+```
+west build --build-dir build-nordic-app --board nrf52840dk/nrf52840 mender-mcu-integration -- '-DCONFIG_MCUBOOT_SIGNATURE_KEY_FILE="bootloader/mcuboot/root-rsa-2048.pem"'
+west flash --build-dir build-nordic-app
+```
 
 ## Contributing
 
