@@ -105,6 +105,12 @@ west build --build-dir build-nordic-app --board nrf52840dk/nrf52840 mender-mcu-i
 west flash --build-dir build-nordic-app
 ```
 
+#### To reset all
+
+```
+nrfjprog --eraseall && nrfjprog --recover
+```
+
 ## Contributing
 
 We welcome and ask for your contribution. If you would like to contribute to
@@ -145,3 +151,14 @@ with many contributions from the community. Thanks
 [everyone](https://github.com/mendersoftware/mender/graphs/contributors)!
 
 [Mender](https://mender.io) is sponsored by [Northern.tech AS](https://northern.tech).
+
+
+## Log to file for the win \o/
+
+/home/lluis/.local/opt/zephyr-sdk-0.16.5-1/sysroots/x86_64-pokysdk-linux/usr/bin/qemu-system-i386 -m 32 -cpu qemu32,+nx,+pae -machine q35 -device isa-debug-exit,iobase=0xf4,iosize=0x04 -nographic -machine acpi=off -net none -pidfile qemu.pid -chardev pty,id=con,mux=on,logfile=pty.log -serial chardev:con -mon chardev=con,mode=readline -icount shift=5,align=off,sleep=off -rtc clock=vm -kernel /home/lluis/west/build/qemu_x86/bootloader/mcuboot/boot/zephyr/zephyr/zephyr.elf
+
+
+https://docs.mcuboot.com/serial_recovery.html
+
+https://docs.zephyrproject.org/latest/hardware/emulator/index.html
+https://docs.zephyrproject.org/latest/build/dts/api/bindings/flash_controller/zephyr%2Csim-flash.html#std-dtcompatible-zephyr-sim-flash
