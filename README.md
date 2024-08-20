@@ -157,6 +157,9 @@ with many contributions from the community. Thanks
 
 /home/lluis/.local/opt/zephyr-sdk-0.16.5-1/sysroots/x86_64-pokysdk-linux/usr/bin/qemu-system-i386 -m 32 -cpu qemu32,+nx,+pae -machine q35 -device isa-debug-exit,iobase=0xf4,iosize=0x04 -nographic -machine acpi=off -net none -pidfile qemu.pid -chardev pty,id=con,mux=on,logfile=pty.log -serial chardev:con -mon chardev=con,mode=readline -icount shift=5,align=off,sleep=off -rtc clock=vm -kernel /home/lluis/west/build/qemu_x86/bootloader/mcuboot/boot/zephyr/zephyr/zephyr.elf
 
+#### 64 bits
+
+/home/lluis/.local/opt/zephyr-sdk-0.16.5-1/sysroots/x86_64-pokysdk-linux/usr/bin/qemu-system-x86_64 -m 32 -cpu qemu64,+x2apic,mmx,mmxext,sse,sse2 -machine q35 -device isa-debug-exit,iobase=0xf4,iosize=0x04 -nographic -machine acpi=off -net none -pidfile qemu.pid -chardev pty,id=con,mux=on,logfile=pty.log -serial chardev:con -mon chardev=con,mode=readline -device loader,file=/home/lluis/west/build/qemu_x86_64/bootloader/mcuboot/boot/zephyr/zephyr/zephyr-qemu-main.elf -smp cpus=2 -kernel /home/lluis/west/build/qemu_x86_64/bootloader/mcuboot/boot/zephyr/zephyr/zephyr-qemu-locore.elf
 
 https://docs.mcuboot.com/serial_recovery.html
 
