@@ -56,16 +56,6 @@ static K_EVENT_DEFINE(mender_client_events);
  */
 static struct net_mgmt_event_callback mgmt_cb;
 
-#ifdef CONFIG_LLEXT
-
-/**
- * @brief Hello-world module data and size
- */
-static void  *hello_world_module_data = NULL;
-static size_t hello_world_module_size = 0;
-
-#endif /* CONFIG_LLEXT */
-
 /**
  * @brief print DHCPv4 address information
  * @param iface Interface
@@ -156,14 +146,6 @@ authentication_success_cb(void) {
 
     LOG_INF("Mender client authenticated");
 
-#ifdef CONFIG_MENDER_CLIENT_ADD_ON_TROUBLESHOOT
-    /* Activate troubleshoot add-on (deactivated by default) */
-    if (MENDER_OK != (ret = mender_troubleshoot_activate())) {
-        LOG_ERR("Unable to activate troubleshoot add-on");
-        return ret;
-    }
-#endif /* CONFIG_MENDER_CLIENT_ADD_ON_TROUBLESHOOT */
-
     /* Validate the image if it is still pending */
     /* Note it is possible to do multiple diagnosic tests before validating the image */
     /* In this example, authentication success with the mender-server is enough */
@@ -214,54 +196,6 @@ deployment_status_cb(mender_deployment_status_t status, char *desc) {
     /* We can do something else if required */
     LOG_INF("Deployment status is '%s'", desc);
 
-#ifdef CONFIG_LLEXT
-
-    /* Management of hello-world module */
-    if ((NULL != hello_world_module_data) && (0 != hello_world_module_size)) {
-
-        /* Treatment depending ofthe status */
-        if (MENDER_DEPLOYMENT_STATUS_INSTALLING == status) {
-
-            /* Load hello-world module */
-            struct llext_buf_loader buf_loader = LLEXT_BUF_LOADER(hello_world_module_data, hello_world_module_size);
-            struct llext_loader    *ldr        = &buf_loader.loader;
-            struct llext_load_param ldr_parm   = LLEXT_LOAD_PARAM_DEFAULT;
-            struct llext           *ext;
-            if (0 != llext_load(ldr, "hello-world", &ext, &ldr_parm)) {
-                LOG_ERR("Unable to load module");
-                ret = MENDER_FAIL;
-            } else {
-
-                /* Call hello_world function */
-                void (*hello_world_fn)() = llext_find_sym(&ext->exp_tab, "hello_world");
-                if (NULL != hello_world_fn) {
-                    hello_world_fn();
-                }
-
-                /* Unload module */
-                llext_unload(&ext);
-            }
-
-            /* Release memory */
-            if (NULL != hello_world_module_data) {
-                free(hello_world_module_data);
-                hello_world_module_data = NULL;
-            }
-            hello_world_module_size = 0;
-
-        } else if (MENDER_DEPLOYMENT_STATUS_FAILURE == status) {
-
-            /* Release memory */
-            if (NULL != hello_world_module_data) {
-                free(hello_world_module_data);
-                hello_world_module_data = NULL;
-            }
-            hello_world_module_size = 0;
-        }
-    }
-
-#endif /* CONFIG_LLEXT */
-
     return ret;
 }
 
@@ -277,69 +211,6 @@ restart_cb(void) {
 
     return MENDER_OK;
 }
-
-#ifdef CONFIG_MENDER_CLIENT_ADD_ON_CONFIGURE
-#ifndef CONFIG_MENDER_CLIENT_CONFIGURE_STORAGE
-
-/**
- * @brief Device configuration updated
- * @param configuration Device configuration
- * @return MENDER_OK if the function succeeds, error code otherwise
- */
-static mender_err_t
-config_updated_cb(mender_keystore_t *configuration) {
-
-    /* Application can use the new device configuration now */
-    /* In this example, we just print the content of the configuration received from the Mender server */
-    if (NULL != configuration) {
-        size_t index = 0;
-        LOG_INF("Device configuration received from the server");
-        while ((NULL != configuration[index].name) && (NULL != configuration[index].value)) {
-            LOG_INF("Key=%s, value=%s", configuration[index].name, configuration[index].value);
-            index++;
-        }
-    }
-
-    return MENDER_OK;
-}
-
-#endif /* CONFIG_MENDER_CLIENT_CONFIGURE_STORAGE */
-#endif /* CONFIG_MENDER_CLIENT_ADD_ON_CONFIGURE */
-
-#ifdef CONFIG_LLEXT
-
-static mender_err_t
-hello_world_module_cb(char *id, char *artifact_name, char *type, cJSON *meta_data, char *filename, size_t size, void *data, size_t index, size_t length) {
-
-    (void)id;
-    (void)artifact_name;
-    (void)type;
-    (void)meta_data;
-    (void)filename;
-    (void)size;
-    (void)index;
-    void *tmp;
-
-    /* Add data to the hello-world module data buffer */
-    if (NULL != data) {
-        if (NULL == (tmp = realloc(hello_world_module_data, hello_world_module_size + length))) {
-            LOG_ERR("Unable to allocate memory");
-            if (NULL != hello_world_module_data) {
-                free(hello_world_module_data);
-                hello_world_module_data = NULL;
-            }
-            hello_world_module_size = 0;
-            return MENDER_FAIL;
-        }
-        hello_world_module_data = tmp;
-        memcpy((void *)(((uint8_t *)hello_world_module_data) + hello_world_module_size), data, length);
-        hello_world_module_size += length;
-    }
-
-    return MENDER_OK;
-}
-
-#endif /* CONFIG_LLEXT */
 
 /**
  * @brief Mender client identity
@@ -359,6 +230,72 @@ get_identity_cb(mender_identity_t **identity) {
     return MENDER_FAIL;
 }
 
+#define DHCP_OPTION_NTP (42)
+
+static uint8_t ntp_server[4];
+
+static struct net_mgmt_event_callback mgmt_cb;
+
+static struct net_dhcpv4_option_callback dhcp_cb;
+
+static void start_dhcpv4_client(struct net_if *iface, void *user_data)
+{
+	ARG_UNUSED(user_data);
+
+	LOG_INF("Start on %s: index=%d", net_if_get_device(iface)->name,
+		net_if_get_by_iface(iface));
+	net_dhcpv4_start(iface);
+}
+
+static void handler(struct net_mgmt_event_callback *cb,
+		    uint32_t mgmt_event,
+		    struct net_if *iface)
+{
+	int i = 0;
+
+	if (mgmt_event != NET_EVENT_IPV4_ADDR_ADD) {
+		return;
+	}
+
+	for (i = 0; i < NET_IF_MAX_IPV4_ADDR; i++) {
+		char buf[NET_IPV4_ADDR_LEN];
+
+		if (iface->config.ip.ipv4->unicast[i].ipv4.addr_type !=
+							NET_ADDR_DHCP) {
+			continue;
+		}
+
+		LOG_INF("   Address[%d]: %s", net_if_get_by_iface(iface),
+			net_addr_ntop(AF_INET,
+			    &iface->config.ip.ipv4->unicast[i].ipv4.address.in_addr,
+						  buf, sizeof(buf)));
+		LOG_INF("    Subnet[%d]: %s", net_if_get_by_iface(iface),
+			net_addr_ntop(AF_INET,
+				       &iface->config.ip.ipv4->unicast[i].netmask,
+				       buf, sizeof(buf)));
+		LOG_INF("    Router[%d]: %s", net_if_get_by_iface(iface),
+			net_addr_ntop(AF_INET,
+						 &iface->config.ip.ipv4->gw,
+						 buf, sizeof(buf)));
+		LOG_INF("Lease time[%d]: %u seconds", net_if_get_by_iface(iface),
+			iface->config.dhcpv4.lease_time);
+	}
+
+    // Network is up \o/
+    k_event_post(&mender_client_events, MENDER_CLIENT_EVENT_NETWORK_UP);
+}
+
+static void option_handler(struct net_dhcpv4_option_callback *cb,
+			   size_t length,
+			   enum net_dhcpv4_msg_type msg_type,
+			   struct net_if *iface)
+{
+	char buf[NET_IPV4_ADDR_LEN];
+
+	LOG_INF("DHCP Option %d: %s", cb->option,
+		net_addr_ntop(AF_INET, cb->data, buf, sizeof(buf)));
+}
+
 /**
  * @brief Main function
  * @return Always returns 0
@@ -366,20 +303,43 @@ get_identity_cb(mender_identity_t **identity) {
 int
 main(void) {
 
+   	printf("Hello World! %s\n", CONFIG_BOARD_TARGET);
+
+
+	LOG_INF("Run dhcpv4 client");
+
+	net_mgmt_init_event_callback(&mgmt_cb, handler,
+				     NET_EVENT_IPV4_ADDR_ADD);
+	net_mgmt_add_event_callback(&mgmt_cb);
+
+	net_dhcpv4_init_option_callback(&dhcp_cb, option_handler,
+					DHCP_OPTION_NTP, ntp_server,
+					sizeof(ntp_server));
+
+	net_dhcpv4_add_option_callback(&dhcp_cb);
+
+	net_if_foreach(start_dhcpv4_client, NULL);
+
+#if 0
     /* Initialize network */
     struct net_if *iface = net_if_get_default();
     assert(NULL != iface);
     net_mgmt_init_event_callback(&mgmt_cb, net_event_handler, NET_EVENT_IPV4_ADDR_ADD);
     net_mgmt_add_event_callback(&mgmt_cb);
     net_dhcpv4_start(iface);
+#endif
 
     /* Wait until the network interface is operational */
     k_event_wait_all(&mender_client_events, MENDER_CLIENT_EVENT_NETWORK_UP, false, K_FOREVER);
+
+    LOG_INF("k_event_wait_all returned");
 
 #if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
     /* Initialize certificate */
     tls_credential_add(CONFIG_MENDER_NET_CA_CERTIFICATE_TAG, TLS_CREDENTIAL_CA_CERTIFICATE, ca_certificate, sizeof(ca_certificate));
 #endif
+
+    struct net_if *iface = net_if_get_first_up();
 
     /* Read base MAC address of the device */
     char                 mac_address[18];
@@ -445,57 +405,8 @@ main(void) {
     assert(MENDER_OK == mender_client_init(&mender_client_config, &mender_client_callbacks));
     LOG_INF("Mender client initialized");
 
-#ifdef CONFIG_LLEXT
-    /* Register LLEXT hello-world module, no reboot after installing the module, no verification of artifact name to check the version of the module */
-    assert(MENDER_OK == mender_client_register_artifact_type("hello-world", &hello_world_module_cb, false, NULL));
-    LOG_INF("Mender client registered hello-world module");
-#endif /* CONFIG_LLEXT */
-
-    /* Initialize mender add-ons */
-#ifdef CONFIG_MENDER_CLIENT_ADD_ON_CONFIGURE
-    mender_configure_config_t    mender_configure_config    = { .refresh_interval = 0 };
-    mender_configure_callbacks_t mender_configure_callbacks = {
-#ifndef CONFIG_MENDER_CLIENT_CONFIGURE_STORAGE
-        .config_updated = config_updated_cb,
-#endif /* CONFIG_MENDER_CLIENT_CONFIGURE_STORAGE */
-    };
-    assert(MENDER_OK
-           == mender_client_register_addon(
-               (mender_addon_instance_t *)&mender_configure_addon_instance, (void *)&mender_configure_config, (void *)&mender_configure_callbacks));
-    LOG_INF("Mender configure add-on registered");
-#endif /* CONFIG_MENDER_CLIENT_ADD_ON_CONFIGURE */
 #ifdef CONFIG_MENDER_CLIENT_ADD_ON_INVENTORY
-    mender_inventory_config_t mender_inventory_config = { .refresh_interval = 0 };
-    assert(MENDER_OK == mender_client_register_addon((mender_addon_instance_t *)&mender_inventory_addon_instance, (void *)&mender_inventory_config, NULL));
-    LOG_INF("Mender inventory add-on registered");
-#endif /* CONFIG_MENDER_CLIENT_ADD_ON_INVENTORY */
-#ifdef CONFIG_MENDER_CLIENT_ADD_ON_TROUBLESHOOT
-    mender_troubleshoot_config_t    mender_troubleshoot_config = { .healthcheck_interval = 0 };
-    mender_troubleshoot_callbacks_t mender_troubleshoot_callbacks
-        = { .shell_begin = shell_begin_cb, .shell_resize = shell_resize_cb, .shell_write = shell_write_cb, .shell_end = shell_end_cb };
-    assert(MENDER_OK
-           == mender_client_register_addon(
-               (mender_addon_instance_t *)&mender_troubleshoot_addon_instance, (void *)&mender_troubleshoot_config, (void *)&mender_troubleshoot_callbacks));
-    LOG_INF("Mender troubleshoot add-on registered");
-#endif /* CONFIG_MENDER_CLIENT_ADD_ON_TROUBLESHOOT */
-
-#ifdef CONFIG_MENDER_CLIENT_ADD_ON_CONFIGURE
-    /* Get mender configuration (this is just an example to illustrate the API) */
-    mender_keystore_t *configuration;
-    if (MENDER_OK != mender_configure_get(&configuration)) {
-        LOG_ERR("Unable to get mender configuration");
-    } else if (NULL != configuration) {
-        size_t index = 0;
-        LOG_INF("Device configuration retrieved");
-        while ((NULL != configuration[index].name) && (NULL != configuration[index].value)) {
-            LOG_INF("Key=%s, value=%s", configuration[index].name, configuration[index].value);
-            index++;
-        }
-        mender_utils_keystore_delete(configuration);
-    }
-#endif /* CONFIG_MENDER_CLIENT_ADD_ON_CONFIGURE */
-
-#ifdef CONFIG_MENDER_CLIENT_ADD_ON_INVENTORY
+#error inventory
     /* Set mender inventory (this is just an example to illustrate the API) */
     mender_keystore_t inventory[] = { { .name = "zephyr-rtos", .value = KERNEL_VERSION_STRING },
                                       { .name = "mender-mcu-client", .value = mender_client_version() },
@@ -512,6 +423,8 @@ main(void) {
         LOG_ERR("Unable to activate mender-client");
         goto RELEASE;
     }
+
+    LOG_INF("Mender client activated");
 
     /* Wait for mender-mcu-client events */
     k_event_wait_all(&mender_client_events, MENDER_CLIENT_EVENT_RESTART, false, K_FOREVER);
