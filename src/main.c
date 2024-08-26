@@ -28,10 +28,15 @@ LOG_MODULE_REGISTER(mender_mcu_integration, LOG_LEVEL_DBG);
 #include <zephyr/net/net_mgmt.h>
 #include <zephyr/sys/reboot.h>
 
-#ifdef CONFIG_LLEXT
-#include <zephyr/llext/llext.h>
-#include <zephyr/llext/buf_loader.h>
-#endif /* CONFIG_LLEXT */
+/*
+ * Amazon Root CA 1 certificate, retrieved from https://www.amazontrust.com/repository in DER format.
+ * It is converted to include file in application CMakeLists.txt.
+ */
+#if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
+static const unsigned char ca_certificate[] = {
+#include "AmazonRootCA1.cer.inc"
+};
+#endif
 
 #include <zephyr/net/tls_credentials.h>
 
@@ -50,58 +55,6 @@ LOG_MODULE_REGISTER(mender_mcu_integration, LOG_LEVEL_DBG);
 static K_EVENT_DEFINE(mender_client_events);
 #define MENDER_CLIENT_EVENT_NETWORK_UP (1 << 0)
 #define MENDER_CLIENT_EVENT_RESTART    (1 << 1)
-
-/**
- * @brief Network management callback
- */
-static struct net_mgmt_event_callback mgmt_cb;
-
-/**
- * @brief print DHCPv4 address information
- * @param iface Interface
- * @param if_addr Interface address
- * @param user_data user data (not used)
- */
-static void
-print_dhcpv4_addr(struct net_if *iface, struct net_if_addr *if_addr, void *user_data) {
-
-    // char           hr_addr[NET_IPV4_ADDR_LEN];
-    // struct in_addr netmask;
-
-    /* Check address type */
-    if (NET_ADDR_DHCP != if_addr->addr_type) {
-        return;
-    }
-
-    LOG_INF("Skip print");
-
-    // LOG_INF("IPv4 address: %s", net_addr_ntop(AF_INET, &if_addr->address.in_addr, hr_addr, NET_IPV4_ADDR_LEN));
-    // LOG_INF("Lease time: %u seconds", iface->config.dhcpv4.lease_time);
-    // netmask = net_if_ipv4_get_netmask_by_addr(iface, &if_addr->address.in_addr);
-    // LOG_INF("Subnet: %s", net_addr_ntop(AF_INET, &netmask, hr_addr, NET_IPV4_ADDR_LEN));
-    // LOG_INF("Router: %s", net_addr_ntop(AF_INET, &iface->config.ip.ipv4->gw, hr_addr, NET_IPV4_ADDR_LEN));
-}
-
-/**
- * @brief Network event handler
- * @param cb Network management callback
- * @param mgmt_event Event
- * @param iface Interface
- */
-static void
-net_event_handler(struct net_mgmt_event_callback *cb, uint32_t mgmt_event, struct net_if *iface) {
-
-    /* Check event */
-    if (NET_EVENT_IPV4_ADDR_ADD != mgmt_event) {
-        return;
-    }
-
-    /* Print interface information */
-    net_if_ipv4_addr_foreach(iface, print_dhcpv4_addr, NULL);
-
-    /* Indicate the network is available */
-    k_event_post(&mender_client_events, MENDER_CLIENT_EVENT_NETWORK_UP);
-}
 
 /**
  * @brief Network connnect callback
@@ -331,8 +284,6 @@ main(void) {
 
     /* Wait until the network interface is operational */
     k_event_wait_all(&mender_client_events, MENDER_CLIENT_EVENT_NETWORK_UP, false, K_FOREVER);
-
-    LOG_INF("k_event_wait_all returned");
 
 #if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
     /* Initialize certificate */
