@@ -33,6 +33,12 @@ To start using Mender, we recommend that you begin with the Getting started
 section in [the Mender documentation](https://docs.mender.io/).
 
 
+## ESP Ethernet
+
+```
+west build .. --board esp32_ethernet_kit/esp32/procpu
+```
+
 ## Building the Zephyr Project Mender reference app
 
 To add Mender OTA Zephyr Module on your project, create first a vanilla Zephyr workspace and
@@ -165,3 +171,12 @@ https://docs.mcuboot.com/serial_recovery.html
 
 https://docs.zephyrproject.org/latest/hardware/emulator/index.html
 https://docs.zephyrproject.org/latest/build/dts/api/bindings/flash_controller/zephyr%2Csim-flash.html#std-dtcompatible-zephyr-sim-flash
+
+# Debugging
+
+sed -i -n '/Booting Zephyr OS build/,$p' coredump.log  && ./zephyr/scripts/coredump/coredump_serial_log_parser.py coredump.log coredump.bin
+
+./zephyr/scripts/coredump/coredump_gdbserver.py build-mcu-integration/zephyr/zephyr.elf coredump.bin
+
+/home/lluis/.local/opt/zephyr-sdk-0.16.5-1/xtensa-espressif_esp32_zephyr-elf/bin/xtensa-espressif_esp32_zephyr-elf-gdb build-mcu-integration/zephyr/zephyr.elf
+target remote localhost:1234

@@ -33,8 +33,11 @@ LOG_MODULE_REGISTER(mender_mcu_integration, LOG_LEVEL_DBG);
  * It is converted to include file in application CMakeLists.txt.
  */
 #if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
-static const unsigned char ca_certificate[] = {
+static const unsigned char ca_certificate_amazon[] = {
 #include "AmazonRootCA1.cer.inc"
+};
+static const unsigned char ca_certificate_cloudflare[] = {
+#include "r2.cloudflarestorage.com1.crt.inc"
 };
 #endif
 
@@ -258,7 +261,6 @@ main(void) {
 
    	printf("Hello World! %s\n", CONFIG_BOARD_TARGET);
 
-
 	LOG_INF("Run dhcpv4 client");
 
 	net_mgmt_init_event_callback(&mgmt_cb, handler,
@@ -286,8 +288,15 @@ main(void) {
     k_event_wait_all(&mender_client_events, MENDER_CLIENT_EVENT_NETWORK_UP, false, K_FOREVER);
 
 #if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
-    /* Initialize certificate */
-    tls_credential_add(CONFIG_MENDER_NET_CA_CERTIFICATE_TAG, TLS_CREDENTIAL_CA_CERTIFICATE, ca_certificate, sizeof(ca_certificate));
+    /* Initialize certificates */
+    tls_credential_add(CONFIG_MENDER_NET_CA_CERTIFICATE_TAG,
+        TLS_CREDENTIAL_CA_CERTIFICATE,
+        ca_certificate_amazon,
+        sizeof(ca_certificate_amazon));
+    tls_credential_add(CONFIG_MENDER_NET_CA_CERTIFICATE_TAG + 1,
+        TLS_CREDENTIAL_CA_CERTIFICATE,
+        ca_certificate_cloudflare,
+        sizeof(ca_certificate_cloudflare));
 #endif
 
     struct net_if *iface = net_if_get_first_up();
@@ -339,10 +348,10 @@ main(void) {
     mender_identity.value                             = mac_address;
     mender_client_config_t    mender_client_config    = { .artifact_name                = artifact_name,
                                                           .device_type                  = device_type,
-                                                          .host                         = NULL,
-                                                          .tenant_token                 = "lluis",
-                                                          .authentication_poll_interval = 0,
-                                                          .update_poll_interval         = 0,
+                                                          .host                         = "https://hosted.mender.io",
+                                                          .tenant_token                 = LLUIS_TENANT_TOKEN,
+                                                          .authentication_poll_interval = 300,
+                                                          .update_poll_interval         = 600,
                                                           .recommissioning              = false };
     mender_client_callbacks_t mender_client_callbacks = { .network_connect        = network_connect_cb,
                                                           .network_release        = network_release_cb,
