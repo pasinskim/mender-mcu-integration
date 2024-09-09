@@ -50,6 +50,11 @@ static const unsigned char ca_certificate_cloudflare[] = {
 #include "mender-shell.h"
 #include "mender-troubleshoot.h"
 
+#define TENANT_TOKEN "92cVEFD5eCsY4mWQd_zXUdZVRiih8cjiVz4fayIoL2s"
+#define DEVICE_TYPE "PROJECT_NAME"
+#define ARTIFACT_NAME "zephyr-espressif-esp32-0.0.1"
+
+
 #define CONFIG_EXAMPLE_AUTHENTICATION_FAILS_MAX_TRIES 3
 
 /**
@@ -130,7 +135,7 @@ authentication_failure_cb(void) {
 
     /* Increment number of failures */
     tries++;
-    LOG_ERR("Mender client authentication failed (%d/%d)", tries, CONFIG_EXAMPLE_AUTHENTICATION_FAILS_MAX_TRIES);
+    LOG_ERR("Mender client authentication failed %d (max tries if deployment in progress %d)", tries, CONFIG_EXAMPLE_AUTHENTICATION_FAILS_MAX_TRIES);
 
     /* Restart the application after several authentication failures with the mender-server */
     /* The image has not been confirmed and the bootloader will now rollback to the previous working image */
@@ -162,8 +167,11 @@ deployment_status_cb(mender_deployment_status_t status, char *desc) {
 static mender_err_t
 restart_cb(void) {
 
+    LOG_INF("Mender client restart from callback");
+
     /* Application is responsible to shutdown and restart the system now */
-    k_event_post(&mender_client_events, MENDER_CLIENT_EVENT_RESTART);
+    //k_event_post(&mender_client_events, MENDER_CLIENT_EVENT_RESTART);
+    sys_reboot(SYS_REBOOT_WARM);
 
     return MENDER_OK;
 }
@@ -179,6 +187,7 @@ static mender_identity_t mender_identity = { .name = "mac", .value = NULL };
  */
 static mender_err_t
 get_identity_cb(mender_identity_t **identity) {
+    LOG_INF("Mender client get identity");
     if (NULL != identity) {
         *identity = &mender_identity;
         return MENDER_OK;
@@ -287,6 +296,7 @@ main(void) {
     /* Wait until the network interface is operational */
     k_event_wait_all(&mender_client_events, MENDER_CLIENT_EVENT_NETWORK_UP, false, K_FOREVER);
 
+
 #if defined(CONFIG_NET_SOCKETS_SOCKOPT_TLS)
     /* Initialize certificates */
     tls_credential_add(CONFIG_MENDER_NET_CA_CERTIFICATE_TAG,
@@ -302,11 +312,11 @@ main(void) {
     struct net_if *iface = net_if_get_first_up();
 
     /* Read base MAC address of the device */
-    char                 mac_address[18];
+    char                 *mac_address = (char *)malloc(18);
     struct net_linkaddr *linkaddr = net_if_get_link_addr(iface);
     assert(NULL != linkaddr);
     snprintf(mac_address,
-             sizeof(mac_address),
+             18,
              "%02x:%02x:%02x:%02x:%02x:%02x",
              linkaddr->addr[0],
              linkaddr->addr[1],
@@ -317,17 +327,18 @@ main(void) {
     LOG_INF("MAC address of the device '%s'", mac_address);
 
     /* Retrieve running version of the device */
-    LOG_INF("Running project '%s' version '%s'", "PROJECT_NAME", "APP_VERSION_STRING");
+    LOG_INF("Running project '%s' version '%s'", ARTIFACT_NAME, DEVICE_TYPE);
 
     /* Compute artifact name */
-    char artifact_name[128];
-    snprintf(artifact_name, sizeof(artifact_name), "%s-v%s", "PROJECT_NAME", "APP_VERSION_STRING");
+    char *artifact_name = (char *)malloc(sizeof(ARTIFACT_NAME) + 1);
+    snprintf(artifact_name, sizeof(ARTIFACT_NAME) + 1, "%s", ARTIFACT_NAME);
 
     /* Retrieve device type */
-    char *device_type = "PROJECT_NAME";
+    char *device_type = (char *)malloc(sizeof(DEVICE_TYPE) + 1);
+    snprintf(device_type, sizeof(DEVICE_TYPE) + 1, "%s", DEVICE_TYPE);
 
     /* Initialize mender-client */
-    // mender_keystore_t         identity[]              = { { .name = "mac", .value = mac_address }, { .name = NULL, .value = NULL } };
+    //mender_keystore_t         identity[]              = { { .name = "mac", .value = mac_address }, { .name = NULL, .value = NULL } };
     // mender_client_config_t    mender_client_config    = { .identity                     = identity,
     //                                                       .artifact_name                = artifact_name,
     //                                                       .device_type                  = device_type,
@@ -343,13 +354,12 @@ main(void) {
     //                                                       .deployment_status      = deployment_status_cb,
     //                                                       .restart                = restart_cb };
 
-
     /* Initialize mender-client */
     mender_identity.value                             = mac_address;
     mender_client_config_t    mender_client_config    = { .artifact_name                = artifact_name,
                                                           .device_type                  = device_type,
                                                           .host                         = "https://hosted.mender.io",
-                                                          .tenant_token                 = LLUIS_TENANT_TOKEN,
+                                                          .tenant_token                 = TENANT_TOKEN,
                                                           .authentication_poll_interval = 300,
                                                           .update_poll_interval         = 600,
                                                           .recommissioning              = false };
@@ -362,8 +372,7 @@ main(void) {
                                                           .get_identity           = get_identity_cb,
                                                           .get_user_provided_keys = NULL };
 
-    assert(MENDER_OK == mender_client_init(&mender_client_config, &mender_client_callbacks));
-    LOG_INF("Mender client initialized");
+    mender_err_t ret =  mender_client_init(&mender_client_config, &mender_client_callbacks);
 
 #ifdef CONFIG_MENDER_CLIENT_ADD_ON_INVENTORY
 #error inventory
@@ -384,16 +393,21 @@ main(void) {
         goto RELEASE;
     }
 
-    LOG_INF("Mender client activated");
+    LOG_INF("Mender client activated and running!");
 
     /* Wait for mender-mcu-client events */
     k_event_wait_all(&mender_client_events, MENDER_CLIENT_EVENT_RESTART, false, K_FOREVER);
+
+    LOG_INF("Did waiting for the event happened");
 
 RELEASE:
 
     /* Deactivate and release mender-client */
     mender_client_deactivate();
     mender_client_exit();
+    free(mac_address);
+    free(artifact_name);
+    free(device_type);
 
     /* Restart */
     LOG_INF("Restarting system");
