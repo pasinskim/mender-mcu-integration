@@ -13,8 +13,7 @@ manifest:
       import: true
     - name: mender-mcu
       remote: mender
-      revision: MEN-7387-complete-qemu-build
-      # TODO: move to mender-mcu for developer's sanity
+      revision: this-shit-works-scheduler-changes-cjson
       path: modules/mender-mcu
       import: true
 
